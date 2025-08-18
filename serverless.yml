@@ -4,12 +4,16 @@ org: devopsbootcamp
 app: todo-app
 service: todo-service
 
+plugins:
+  - serverless-plugin-log-retention
 provider:
   name: aws
   runtime: nodejs18.x
   region: eu-west-1
   stage: ${opt:stage, 'dev'}
   profile: ${opt:profile, 'Admin'}
+  deploymentBucket:
+    name: bootcampbucketflorinel 
   vpc:
     securityGroupIds:
       - Ref: LambdaSecurityGroup
@@ -31,16 +35,31 @@ provider:
             - sqs:SendMessage
             - sqs:ReceiveMessage
             - sqs:DeleteMessage
-            - ec2:CreateNetworkInterface
-            - ec2:DescribeNetworkInterfaces
-            - ec2:DeleteNetworkInterface
             - s3:GetObject
             - s3:PutObject
-            - s3:DeleteObject
             - s3:ListBucket
             - s3:CreateBucket
         
-          Resource: "*"
+          Resource: "arn:aws:s3:::bootcampbucketflorinel/*, arn:aws:dynamodb:${self:provider.region}:${aws:accountId}:table/${self:custom.todoTableName}, arn:aws:sqs:${self:provider.region}:${aws:accountId}:todo-queue-${self:provider.stage}"
+  package:
+    individually: true
+    patterns:
+      - 'handlers/**'
+
+
+params:
+  dev:
+    VpcId: vpc-xxxxxx
+    PrivateSubnet1: subnet-xxxxxx1
+    PrivateSubnet2: subnet-xxxxxx2
+  stage:
+    VpcId: vpc-yyyyyy
+    PrivateSubnet1: subnet-yyyyyy1
+    PrivateSubnet2: subnet-yyyyyy2
+  prod:
+    VpcId: vpc-zzzzzz
+    PrivateSubnet1: subnet-zzzzzz1
+    PrivateSubnet2: subnet-zzzzzz2
 
 custom:
   privateSubnet1: ${param:PrivateSubnet1}
@@ -75,22 +94,12 @@ resources:
       Properties:
         QueueName: todo-queue-${self:provider.stage}
 
-  Outputs:
-    TodoTableName:
-      Value: !Ref TodoTable
-      Export:
-        Name: ${self:provider.stage}-TodoTableName
-    TodoQueueUrl:
-      Value: !Ref TodoQueue
-      Export:
-        Name: ${self:provider.stage}-TodoQueueUrl
+  
 
 functions:
   CreateTodo:
-    handler: handlers/createTodo.handler
+    handler: handlers/handlers_createTodo.handler
     vpc:
-      securityGroupIds:
-        - Ref: LambdaSecurityGroup
       subnetIds:
         - ${self:custom.privateSubnet1}
         - ${self:custom.privateSubnet2}
@@ -105,8 +114,6 @@ functions:
   processTodo:
     handler: handlers/processTodo.handler
     vpc:
-      securityGroupIds:
-        - Ref: LambdaSecurityGroup
       subnetIds:
         - ${self:custom.privateSubnet1}
         - ${self:custom.privateSubnet2}
@@ -117,42 +124,18 @@ functions:
       - sqs:
           arn:
             Fn::GetAtt: [TodoQueue, Arn]
+Outputs:
+    TodoTableName:
+      Value: !Ref TodoTable
+      Export:
+        Name: ${self:provider.stage}-TodoTableName
+    TodoQueueUrl:
+      Value: !Ref TodoQueue
+      Export:
+        Name: ${self:provider.stage}-TodoQueueUrl
+  
 
-  imageProcessor:
-    handler: helpers/imageProcessor.handler
-    vpc:
-      securityGroupIds:
-        - Ref: LambdaSecurityGroup
-      subnetIds:
-        - ${self:custom.privateSubnet1}
-        - ${self:custom.privateSubnet2}
-    environment:
-      TODO_TABLE: ${self:custom.todoTableName}
+  
 
-  dlqReDrive:
-    handler: helpers/dlqReDrive.handler
-    vpc:
-      securityGroupIds:
-        - Ref: LambdaSecurityGroup
-      subnetIds:
-        - ${self:custom.privateSubnet1}
-        - ${self:custom.privateSubnet2}
-    environment:
-      QUEUE_URL: ${self:custom.todoQueueUrl}
 
-plugins:
-  - serverless-deployment-bucket
 
-params:
-  dev:
-    VpcId: vpc-xxxxxx
-    PrivateSubnet1: subnet-xxxxxx1
-    PrivateSubnet2: subnet-xxxxxx2
-  stage:
-    VpcId: vpc-yyyyyy
-    PrivateSubnet1: subnet-yyyyyy1
-    PrivateSubnet2: subnet-yyyyyy2
-  prod:
-    VpcId: vpc-zzzzzz
-    PrivateSubnet1: subnet-zzzzzz1
-    PrivateSubnet2: subnet-zzzzzz2
